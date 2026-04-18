@@ -4,17 +4,23 @@
    분석: Claude API (claude-haiku-4-5)
 =================================================== */
 
+// ─── Firebase ────────────────────────────────────
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCGvKOuesMb2PUYfsMyS9otpQOwbOKdSYY",
+  authDomain: "zaf-news.firebaseapp.com",
+  databaseURL: "https://zaf-news-default-rtdb.firebaseio.com",
+  projectId: "zaf-news",
+  storageBucket: "zaf-news.firebasestorage.app",
+  messagingSenderId: "815294579559",
+  appId: "1:815294579559:web:39a48de69b3a151127e5c2",
+  measurementId: "G-RXSSW07M4X"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
 // ─── 상태 관리 ───────────────────────────────────
-
-const STORE_KEY = 'econews_v1';
-
-function loadState() {
-  try {
-    return JSON.parse(localStorage.getItem(STORE_KEY)) || defaultState();
-  } catch {
-    return defaultState();
-  }
-}
 
 function defaultState() {
   return {
@@ -24,13 +30,11 @@ function defaultState() {
   };
 }
 
-function saveStateToStorage(state) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(state));
-}
+function saveStateToStorage() {}
 
 // ─── 앱 상태 ─────────────────────────────────────
 
-let state = loadState();
+let state = defaultState();
 let fetchedMap = {};      // { categoryId: [article, ...] }
 let currentCatId = null;  // null = 전체, string = 특정 분야
 let editingCatId = null;
@@ -183,7 +187,7 @@ function parseRSS(xmlText, cutoff, categoryId, categoryName, platform) {
     if (pubDate < cutoff) continue;
 
     const descRaw = item.querySelector('description')?.textContent || '';
-    const summary = truncate(descRaw, 100);
+    const summary = truncate(descRaw, 200);
     const source = item.querySelector('source')?.textContent?.trim() || '';
 
     articles.push({
@@ -272,11 +276,21 @@ async function fetchNewsForCategory(cat) {
   // 결과가 없으면 일반 검색 폴백
   if (merged.length === 0) {
     const fallback = await fetchGeneralNews(cat.name, cutoff, cat.id, cat.name).catch(() => []);
-    if (fallback.length > 0) return fallback;
+    if (fallback.length > 0) return filterByKeyword(fallback, cat.name);
   }
 
   merged.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-  return merged;
+  return filterByKeyword(merged, cat.name);
+}
+
+// 제목·요약에 분야 키워드가 포함된 기사만 반환 (결과가 너무 적으면 원본 반환)
+function filterByKeyword(articles, keyword) {
+  const parts = keyword.toLowerCase().trim().split(/\s+/).filter(p => p.length >= 2);
+  const relevant = articles.filter(a => {
+    const text = ((a.title || '') + ' ' + (a.summary || '')).toLowerCase();
+    return parts.every(p => text.includes(p));
+  });
+  return relevant.length >= 3 ? relevant : articles;
 }
 
 // ─── 렌더링: 사이드바 ─────────────────────────────
@@ -327,51 +341,64 @@ function renderFetched() {
   const container = document.getElementById('fetched-articles');
   const savedUrls = new Set(state.savedArticles.map(a => a.url));
 
-  // 현재 선택된 분야의 기사 or 전체
-  let articles = [];
   if (currentCatId === null) {
-    Object.values(fetchedMap).forEach(arr => articles.push(...arr));
+    // 전체 보기: 분야별 그룹
+    const groups = Object.entries(fetchedMap).filter(([, arr]) => arr.length > 0);
+    if (!groups.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          <p>조회 버튼을 눌러<br>전체 분야 뉴스를 가져오세요</p>
+        </div>`;
+      return;
+    }
+    container.innerHTML = groups.map(([catId, articles]) => {
+      const cat = state.categories.find(c => c.id === catId);
+      return `
+        <div class="fetched-group">
+          <div class="fetched-group-header">${esc(cat?.name || '기타')}</div>
+          ${articles.map(a => fetchedItemHtml(a, savedUrls)).join('')}
+        </div>`;
+    }).join('');
   } else {
-    articles = fetchedMap[currentCatId] || [];
+    const articles = fetchedMap[currentCatId] || [];
+    if (!articles.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          <p>조회 버튼을 눌러 뉴스를 가져오세요</p>
+        </div>`;
+      return;
+    }
+    container.innerHTML = articles.map(a => fetchedItemHtml(a, savedUrls)).join('');
   }
-
-  if (!articles.length) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📡</div>
-        <p>${currentCatId ? '조회 버튼을 눌러 뉴스를 가져오세요' : '조회 버튼을 눌러<br>전체 분야 뉴스를 가져오세요'}</p>
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = articles.map(a => {
-    const saved = savedUrls.has(a.url);
-    const srcInfo = NEWS_SOURCES.find(s => s.id === a.platform);
-    const platformBadge = srcInfo
-      ? `<span class="platform-badge plat-${srcInfo.id}">${srcInfo.label}</span>`
-      : a.platform === 'general' ? `<span class="platform-badge plat-general">구글뉴스</span>` : '';
-    return `
-      <div class="article-card${saved ? ' is-saved' : ''}">
-        <div class="card-meta">
-          ${currentCatId === null ? `<span class="cat-tag">${esc(a.categoryName)}</span><span class="meta-dot">·</span>` : ''}
-          ${platformBadge}
-          <span class="meta-source">${esc(a.source)}</span>
-          <span class="meta-dot">·</span>
-          <span class="meta-date">${timeAgo(a.publishedAt)}</span>
-        </div>
-        <a class="card-title" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
-        ${a.summary ? `<p class="card-summary">${esc(a.summary)}</p>` : ''}
-        <div class="card-actions">
-          ${saved
-            ? `<span class="saved-badge">✓ 저장됨</span>`
-            : `<button class="btn btn-xs btn-success-sm btn-do-save" data-aid="${a.id}">+ 저장</button>`}
-        </div>
-      </div>`;
-  }).join('');
 
   container.querySelectorAll('.btn-do-save').forEach(btn => {
     btn.onclick = () => saveArticle(btn.dataset.aid);
   });
+}
+
+function fetchedItemHtml(a, savedUrls) {
+  const saved = savedUrls.has(a.url);
+  const srcInfo = NEWS_SOURCES.find(s => s.id === a.platform);
+  const platformBadge = srcInfo
+    ? `<span class="platform-badge plat-${srcInfo.id}">${srcInfo.label}</span>`
+    : a.platform === 'general' ? `<span class="platform-badge plat-general">구글뉴스</span>` : '';
+  const srcLabel = srcInfo?.label || '';
+  const isDup = a.source && (srcLabel.includes(a.source) || a.source.includes(srcLabel));
+  const metaSource = (a.source && !isDup) ? `${esc(a.source)} · ` : '';
+  return `
+    <div class="fetched-item${saved ? ' is-saved' : ''}">
+      <div class="fetched-item-meta">
+        ${platformBadge}
+        <span class="fetched-meta-info">${metaSource}${timeAgo(a.publishedAt)}</span>
+        ${saved
+          ? `<span class="saved-badge">✓ 저장됨</span>`
+          : `<button class="btn btn-xs btn-success-sm btn-do-save" data-aid="${a.id}">+ 저장</button>`}
+      </div>
+      <a class="card-title" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
+      ${a.summary ? `<p class="card-summary fetched-summary">${esc(a.summary)}</p>` : ''}
+    </div>`;
 }
 
 // ─── 렌더링: 저장된 기사 ──────────────────────────
@@ -410,27 +437,41 @@ function renderSaved() {
       const platformBadge = srcInfo
         ? `<span class="platform-badge plat-${srcInfo.id}">${srcInfo.label}</span>`
         : a.platform === 'general' ? `<span class="platform-badge plat-general">구글뉴스</span>` : '';
+      const srcLabel = srcInfo?.label || '';
+      const isDup = a.source && (srcLabel.includes(a.source) || a.source.includes(srcLabel));
+      const metaSource = (a.source && !isDup)
+        ? `<span class="meta-dot">·</span><span class="meta-source">${esc(a.source)}</span>` : '';
       return `
       <div class="article-card is-saved">
-        <div class="card-meta">
-          ${currentCatId === null ? `<span class="cat-tag">${esc(a.categoryName)}</span><span class="meta-dot">·</span>` : ''}
-          ${platformBadge}
-          <span class="meta-source">${esc(a.source || '')}</span>
-          <span class="meta-dot">·</span>
-          <span class="meta-date">${timeAgo(a.publishedAt)}</span>
-        </div>
-        <a class="card-title" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
-        ${a.summary ? `<p class="card-summary">${esc(a.summary)}</p>` : ''}
-        ${a.memo ? `<div class="card-memo">💬 ${esc(a.memo)}</div>` : ''}
-        <div class="card-actions">
-          <button class="btn btn-xs btn-memo do-memo" data-aid="${a.id}">${a.memo ? '✏ 메모 수정' : '💬 메모 추가'}</button>
-          <button class="btn btn-xs btn-danger-sm do-delete" data-aid="${a.id}">삭제</button>
-        </div>
-        <div class="inline-memo-editor" id="memo-editor-${a.id}">
-          <textarea class="inline-memo-textarea" placeholder="이 기사에 대한 의견, 분석, 메모를 입력하세요...">${esc(a.memo || '')}</textarea>
-          <div class="inline-memo-actions">
-            <button class="btn btn-xs btn-primary do-save-inline-memo" data-aid="${a.id}">저장</button>
-            <button class="btn btn-xs btn-secondary do-cancel-memo" data-aid="${a.id}">취소</button>
+        <div class="saved-card-layout">
+          <div class="saved-card-content">
+            <div class="card-meta">
+              ${currentCatId === null ? `<span class="cat-tag">${esc(a.categoryName)}</span><span class="meta-dot">·</span>` : ''}
+              ${platformBadge}
+              ${metaSource}
+              <span class="meta-dot">·</span>
+              <span class="meta-date">${timeAgo(a.publishedAt)}</span>
+            </div>
+            <a class="card-title" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
+            ${a.summary ? `<p class="card-summary">${esc(a.summary)}</p>` : ''}
+            <div class="card-actions">
+              <button class="btn btn-xs btn-danger-sm do-delete" data-aid="${a.id}">삭제</button>
+            </div>
+          </div>
+          <div class="saved-card-memo">
+            <div class="memo-display" id="memo-display-${a.id}">
+              ${a.memo
+                ? `<div class="card-memo">${esc(a.memo)}</div>`
+                : `<p class="memo-empty">메모를 입력하세요</p>`}
+              <button class="btn btn-xs btn-memo do-memo" data-aid="${a.id}">${a.memo ? '✏ 수정' : '💬 추가'}</button>
+            </div>
+            <div class="inline-memo-editor" id="memo-editor-${a.id}">
+              <textarea class="inline-memo-textarea" placeholder="의견, 분석, 메모...">${esc(a.memo || '')}</textarea>
+              <div class="inline-memo-actions">
+                <button class="btn btn-xs btn-primary do-save-inline-memo" data-aid="${a.id}">저장</button>
+                <button class="btn btn-xs btn-secondary do-cancel-memo" data-aid="${a.id}">취소</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>`;
@@ -443,33 +484,43 @@ function renderSaved() {
     btn.onclick = () => {
       const aid = btn.dataset.aid;
       const editor = document.getElementById(`memo-editor-${aid}`);
+      const display = document.getElementById(`memo-display-${aid}`);
       const isOpen = editor.classList.contains('open');
+      // 다른 에디터 모두 닫기
       container.querySelectorAll('.inline-memo-editor').forEach(e => e.classList.remove('open'));
+      container.querySelectorAll('.memo-display').forEach(d => d.style.display = '');
       if (!isOpen) {
         editor.classList.add('open');
+        display.style.display = 'none';
         editor.querySelector('textarea').focus();
       }
     };
   });
 
   container.querySelectorAll('.do-save-inline-memo').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const aid = btn.dataset.aid;
       const editor = document.getElementById(`memo-editor-${aid}`);
       const memo = editor.querySelector('textarea').value.trim();
       const idx = state.savedArticles.findIndex(a => a.id === aid);
       if (idx !== -1) {
-        state.savedArticles[idx].memo = memo;
-        saveStateToStorage(state);
-        showToast('메모가 저장되었습니다', 'ok');
-        renderSaved();
+        try {
+          await db.ref('savedArticles/' + aid + '/memo').set(memo);
+          state.savedArticles[idx].memo = memo;
+          showToast('메모가 저장되었습니다', 'ok');
+          renderSaved();
+        } catch (err) {
+          showToast('저장 실패: ' + err.message, 'err');
+        }
       }
     };
   });
 
   container.querySelectorAll('.do-cancel-memo').forEach(btn => {
     btn.onclick = () => {
-      document.getElementById(`memo-editor-${btn.dataset.aid}`).classList.remove('open');
+      const aid = btn.dataset.aid;
+      document.getElementById(`memo-editor-${aid}`).classList.remove('open');
+      document.getElementById(`memo-display-${aid}`).style.display = '';
     };
   });
 
@@ -509,7 +560,11 @@ function renderAll() {
 function syncHeaderButtons() {
   const hasCat = currentCatId !== null;
   const hasCats = state.categories.length > 0;
+  const hasFetched = hasCat
+    ? (fetchedMap[currentCatId]?.length > 0)
+    : Object.values(fetchedMap).some(a => a.length > 0);
   document.getElementById('btn-fetch').disabled = !hasCats;
+  document.getElementById('btn-clear-fetched').disabled = !hasFetched;
   document.getElementById('btn-analyze-category').disabled = !hasCat;
   document.getElementById('btn-clear-saved').disabled = !hasCat;
 
@@ -560,7 +615,7 @@ function openEditCategory(id) {
   setTimeout(() => document.getElementById('input-category-name').focus(), 80);
 }
 
-function saveCategory() {
+async function saveCategory() {
   const name = document.getElementById('input-category-name').value.trim();
   if (!name) { showToast('분야명을 입력해주세요', 'err'); return; }
 
@@ -568,21 +623,22 @@ function saveCategory() {
     const idx = state.categories.findIndex(c => c.id === editingCatId);
     if (idx !== -1) {
       state.categories[idx].name = name;
-      // 저장된 기사의 categoryName도 업데이트
       state.savedArticles.forEach(a => {
         if (a.categoryId === editingCatId) a.categoryName = name;
       });
+      await db.ref('categories/' + editingCatId + '/name').set(name).catch(() => {});
     }
     showToast('분야가 수정되었습니다', 'ok');
   } else {
     if (state.categories.some(c => c.name === name)) {
       showToast('이미 존재하는 분야입니다', 'warn'); return;
     }
-    state.categories.push({ id: uid(), name, lastFetched: null });
+    const cat = { id: uid(), name, lastFetched: null };
+    state.categories.push(cat);
+    await db.ref('categories/' + cat.id).set(cat).catch(() => {});
     showToast('분야가 추가되었습니다', 'ok');
   }
 
-  saveStateToStorage(state);
   closeModal('modal-category');
   renderAll();
 }
@@ -599,7 +655,8 @@ function deleteCategory(id) {
   state.categories = state.categories.filter(c => c.id !== id);
   state.savedArticles = state.savedArticles.filter(a => a.categoryId !== id);
   delete fetchedMap[id];
-  saveStateToStorage(state);
+  db.ref('categories/' + id).remove().catch(() => {});
+  db.ref('fetchedArticles/' + id).remove().catch(() => {});
 
   if (currentCatId === id) currentCatId = null;
   renderAll();
@@ -623,12 +680,13 @@ async function doFetch() {
     try {
       const now = new Date().toISOString();
       await Promise.all(state.categories.map(async cat => {
-        const articles = await fetchNewsForCategory(cat).catch(() => []);
+        let articles = await fetchNewsForCategory(cat).catch(() => []);
+        articles = await summarizeWithAI(articles);
         fetchedMap[cat.id] = articles;
         const idx = state.categories.findIndex(c => c.id === cat.id);
         if (idx !== -1) state.categories[idx].lastFetched = now;
+        await saveFetchedToFirebase(cat.id, articles);
       }));
-      saveStateToStorage(state);
 
       const total = Object.values(fetchedMap).reduce((s, a) => s + a.length, 0);
       showToast(total ? `전체 ${total}개 기사를 가져왔습니다` : '새 기사가 없습니다', total ? 'ok' : 'warn');
@@ -652,12 +710,13 @@ async function doFetch() {
   container.innerHTML = `<div class="loading-row"><div class="spinner"></div>뉴스를 가져오는 중...</div>`;
 
   try {
-    const articles = await fetchNewsForCategory(cat);
+    let articles = await fetchNewsForCategory(cat);
+    articles = await summarizeWithAI(articles);
     fetchedMap[currentCatId] = articles;
 
     const idx = state.categories.findIndex(c => c.id === currentCatId);
     if (idx !== -1) state.categories[idx].lastFetched = new Date().toISOString();
-    saveStateToStorage(state);
+    await saveFetchedToFirebase(currentCatId, articles);
 
     showToast(articles.length ? `${articles.length}개 기사를 가져왔습니다` : '해당 기간에 새 기사가 없습니다', articles.length ? 'ok' : 'warn');
     renderAll();
@@ -673,8 +732,7 @@ async function doFetch() {
 
 // ─── 기사 저장 / 삭제 ─────────────────────────────
 
-function saveArticle(articleId) {
-  // fetchedMap 전체에서 검색
+async function saveArticle(articleId) {
   let article = null;
   for (const arr of Object.values(fetchedMap)) {
     article = arr.find(a => a.id === articleId);
@@ -686,28 +744,44 @@ function saveArticle(articleId) {
     showToast('이미 저장된 기사입니다', 'warn'); return;
   }
 
-  state.savedArticles.push({ ...article, savedAt: new Date().toISOString(), memo: '' });
-  saveStateToStorage(state);
-  showToast('기사가 저장되었습니다', 'ok');
-  renderAll();
+  const saved = { ...article, savedAt: new Date().toISOString(), memo: '' };
+  try {
+    await db.ref('savedArticles/' + saved.id).set(saved);
+    state.savedArticles.push(saved);
+    showToast('기사가 저장되었습니다', 'ok');
+    renderAll();
+  } catch (err) {
+    showToast('저장 실패: ' + err.message, 'err');
+  }
 }
 
-function deleteSaved(articleId) {
-  state.savedArticles = state.savedArticles.filter(a => a.id !== articleId);
-  saveStateToStorage(state);
-  showToast('기사가 삭제되었습니다');
-  renderAll();
+async function deleteSaved(articleId) {
+  try {
+    await db.ref('savedArticles/' + articleId).remove();
+    state.savedArticles = state.savedArticles.filter(a => a.id !== articleId);
+    showToast('기사가 삭제되었습니다');
+    renderAll();
+  } catch (err) {
+    showToast('삭제 실패: ' + err.message, 'err');
+  }
 }
 
-function clearSavedForCategory() {
+async function clearSavedForCategory() {
   if (!currentCatId) return;
-  const cnt = state.savedArticles.filter(a => a.categoryId === currentCatId).length;
-  if (!cnt) { showToast('저장된 기사가 없습니다', 'warn'); return; }
-  if (!confirm(`저장된 기사 ${cnt}개를 모두 삭제합니다. 계속할까요?`)) return;
-  state.savedArticles = state.savedArticles.filter(a => a.categoryId !== currentCatId);
-  saveStateToStorage(state);
-  renderAll();
-  showToast('삭제 완료');
+  const toDelete = state.savedArticles.filter(a => a.categoryId === currentCatId);
+  if (!toDelete.length) { showToast('저장된 기사가 없습니다', 'warn'); return; }
+  if (!confirm(`저장된 기사 ${toDelete.length}개를 모두 삭제합니다. 계속할까요?`)) return;
+
+  try {
+    const updates = {};
+    toDelete.forEach(a => { updates['savedArticles/' + a.id] = null; });
+    await db.ref().update(updates);
+    state.savedArticles = state.savedArticles.filter(a => a.categoryId !== currentCatId);
+    renderAll();
+    showToast('삭제 완료');
+  } catch (err) {
+    showToast('삭제 실패: ' + err.message, 'err');
+  }
 }
 
 // ─── 메모 ────────────────────────────────────────
@@ -906,8 +980,102 @@ function bindEvents() {
   document.getElementById('btn-analyze-all').onclick = () => analyzeTrends(null);
   document.getElementById('btn-analyze-category').onclick = () => analyzeTrends(currentCatId);
 
+  // 조회 기사 삭제
+  document.getElementById('btn-clear-fetched').onclick = clearFetchedArticles;
+
   // 전체 삭제
   document.getElementById('btn-clear-saved').onclick = clearSavedForCategory;
+}
+
+// ─── Firebase 헬퍼 / 데이터 로드 ────────────────────
+
+async function summarizeWithAI(articles) {
+  const apiKey = state.settings.claudeApiKey;
+  if (!apiKey || !articles.length) return articles;
+
+  const items = articles.map((a, i) =>
+    `[${i}] 제목: ${a.title}\n내용: ${a.summary || ''}`
+  ).join('\n---\n');
+
+  const prompt = `다음 뉴스 기사들을 각각 200자 이내의 한국어로 핵심 내용만 요약하세요.
+반드시 아래 JSON 배열 형식으로만 응답하세요 (다른 텍스트 없이):
+[{"i":0,"s":"요약"},{"i":1,"s":"요약"},...]
+
+${items}`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 3000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!resp.ok) return articles;
+    const data = await resp.json();
+    const text = data.content?.[0]?.text || '';
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) return articles;
+    const summaries = JSON.parse(match[0]);
+    return articles.map((a, i) => {
+      const found = summaries.find(s => s.i === i);
+      return found ? { ...a, summary: found.s } : a;
+    });
+  } catch {
+    return articles;
+  }
+}
+
+async function saveFetchedToFirebase(catId, articles) {
+  const obj = {};
+  articles.forEach(a => { obj[a.id] = a; });
+  await db.ref('fetchedArticles/' + catId).set(obj).catch(() => {});
+}
+
+async function clearFetchedArticles() {
+  if (currentCatId) {
+    if (!fetchedMap[currentCatId]?.length) return;
+    delete fetchedMap[currentCatId];
+    await db.ref('fetchedArticles/' + currentCatId).remove().catch(() => {});
+  } else {
+    if (!Object.values(fetchedMap).some(a => a.length > 0)) return;
+    fetchedMap = {};
+    await db.ref('fetchedArticles').remove().catch(() => {});
+  }
+  renderFetched();
+  syncHeaderButtons();
+  showToast('조회된 기사가 삭제되었습니다');
+}
+
+function loadFromFirebase() {
+  Promise.all([
+    db.ref('categories').once('value'),
+    db.ref('savedArticles').once('value'),
+    db.ref('fetchedArticles').once('value')
+  ]).then(([catsSnap, savedSnap, fetchedSnap]) => {
+    const catsData = catsSnap.val() || {};
+    state.categories = Object.values(catsData);
+
+    const saved = savedSnap.val() || {};
+    state.savedArticles = Object.values(saved);
+
+    const fetched = fetchedSnap.val() || {};
+    Object.entries(fetched).forEach(([catId, articlesObj]) => {
+      fetchedMap[catId] = Object.values(articlesObj)
+        .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+    });
+
+    renderAll();
+  }).catch(err => {
+    console.warn('Firebase 불러오기 실패:', err.message);
+  });
 }
 
 // ─── 초기화 ───────────────────────────────────────
@@ -915,6 +1083,7 @@ function bindEvents() {
 function init() {
   bindEvents();
   renderAll();
+  loadFromFirebase();
 }
 
 document.addEventListener('DOMContentLoaded', init);

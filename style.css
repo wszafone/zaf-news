@@ -366,6 +366,12 @@ button { font-family: inherit; cursor: pointer; }
   line-height: 1.65;
   margin-bottom: 8px;
 }
+.panel-fetched .card-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .card-memo {
   font-size: 12px;
@@ -392,6 +398,48 @@ button { font-family: inherit; cursor: pointer; }
   padding: 3px 10px;
   background: var(--green-light);
   border-radius: var(--radius-pill);
+}
+
+/* ===== Fetched Articles List ===== */
+.fetched-group { margin-bottom: 10px; }
+.fetched-group-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue-dark);
+  background: var(--blue-light);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+.fetched-item {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-bottom: 3px;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.15s;
+}
+.fetched-item:hover { box-shadow: var(--shadow-2); }
+.fetched-item.is-saved { border-left: 3px solid var(--green); }
+.fetched-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  flex-wrap: wrap;
+}
+.fetched-meta-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex: 1;
+}
+.fetched-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 0;
 }
 
 /* ===== Date Divider ===== */
@@ -726,6 +774,42 @@ button { font-family: inherit; cursor: pointer; }
 .toast.ok   { background: #323232; }
 .toast.err  { background: var(--red); }
 .toast.warn { background: #e37400; }
+
+/* ===== Saved Card 2-column Layout ===== */
+.saved-card-layout {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  gap: 0 14px;
+  align-items: start;
+}
+.saved-card-content { min-width: 0; }
+.saved-card-memo {
+  border-left: 2px solid var(--purple-light);
+  padding-left: 10px;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+}
+.memo-display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.memo-empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
+  line-height: 1.6;
+  padding: 2px 0;
+}
+.saved-card-memo .inline-memo-editor {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.saved-card-memo .card-memo {
+  margin-bottom: 0;
+}
 
 /* ===== Inline Memo Editor ===== */
 .inline-memo-editor {

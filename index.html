@@ -44,6 +44,7 @@
         </div>
         <div class="panel-actions">
           <span class="fetch-time-label" id="last-fetch-time"></span>
+          <button class="btn btn-danger-outline btn-sm" id="btn-clear-fetched" disabled>전체 삭제</button>
           <button class="btn btn-primary btn-sm" id="btn-fetch" disabled>🔄 조회</button>
         </div>
       </div>
@@ -174,6 +175,8 @@
   <!-- 토스트 알림 -->
   <div id="toast" class="toast"></div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
