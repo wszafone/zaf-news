@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>자프뉴스</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-left">
+      <h1 class="app-title">자프뉴스</h1>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-secondary btn-sm" id="btn-settings">⚙ 설정</button>
+      <button class="btn btn-primary btn-sm" id="btn-analyze-all">📊 전체 분석</button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+
+    <!-- 분야 사이드바 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-label">분야</span>
+        <button class="btn btn-sm btn-sidebar-add" id="btn-add-category">+ 추가</button>
+      </div>
+      <ul id="category-list" class="category-list">
+        <li class="category-item all-item active" data-id="all">
+          <span class="category-dot"></span>
+          <span class="category-name">전체 보기</span>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- 최신 뉴스 패널 -->
+    <section class="news-panel panel-fetched">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <h2>최신 뉴스</h2>
+          <span class="category-chip" id="fetched-chip">분야를 선택하세요</span>
+        </div>
+        <div class="panel-actions">
+          <span class="fetch-time-label" id="last-fetch-time"></span>
+          <button class="btn btn-primary btn-sm" id="btn-fetch" disabled>🔄 조회</button>
+        </div>
+      </div>
+      <div class="panel-body" id="fetched-articles">
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          <p>분야를 선택하거나<br>조회 버튼으로 전체 뉴스를 가져오세요</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 저장된 기사 패널 -->
+    <section class="news-panel panel-saved">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <h2>저장된 기사</h2>
+          <span class="category-chip saved-chip" id="saved-chip"></span>
+        </div>
+        <div class="panel-actions">
+          <button class="btn btn-outline btn-sm" id="btn-analyze-category" disabled>📊 분석</button>
+          <button class="btn btn-danger-outline btn-sm" id="btn-clear-saved" disabled>전체 삭제</button>
+        </div>
+      </div>
+      <div class="panel-body" id="saved-articles">
+        <div class="empty-state">
+          <div class="empty-icon">🗂</div>
+          <p>저장된 기사가 없습니다</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- 분야 추가/수정 모달 -->
+  <div class="modal-overlay" id="modal-category">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-category-title">분야 추가</h3>
+        <button class="modal-close" data-close="modal-category">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="input-category-name">분야명</label>
+          <input type="text" id="input-category-name" class="form-input" placeholder="예: 반도체, 부동산, 금융, 주식..." maxlength="20">
+          <small class="form-hint">뉴스 검색 키워드로 사용됩니다</small>
+        </div>
+        <div class="suggested-tags">
+          <span class="tag-label">추천:</span>
+          <button class="tag-btn" data-tag="반도체">반도체</button>
+          <button class="tag-btn" data-tag="부동산">부동산</button>
+          <button class="tag-btn" data-tag="주식">주식</button>
+          <button class="tag-btn" data-tag="금융">금융</button>
+          <button class="tag-btn" data-tag="환율">환율</button>
+          <button class="tag-btn" data-tag="수출입">수출입</button>
+          <button class="tag-btn" data-tag="물가">물가</button>
+          <button class="tag-btn" data-tag="AI 경제">AI 경제</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-category">취소</button>
+        <button class="btn btn-primary" id="btn-save-category">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 메모 모달 -->
+  <div class="modal-overlay" id="modal-memo">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>의견 메모</h3>
+        <button class="modal-close" data-close="modal-memo">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="memo-article-preview" id="memo-article-preview"></div>
+        <div class="form-group">
+          <label for="input-memo">나의 의견</label>
+          <textarea id="input-memo" class="form-textarea" placeholder="이 기사에 대한 의견, 분석, 메모를 입력하세요..." rows="6"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-memo">취소</button>
+        <button class="btn btn-primary" id="btn-save-memo">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 설정 모달 -->
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>API 설정</h3>
+        <button class="modal-close" data-close="modal-settings">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="input-api-key">Claude API Key</label>
+          <input type="password" id="input-api-key" class="form-input" placeholder="sk-ant-api03-...">
+          <small class="form-hint">트렌드 분석에 사용됩니다. API 키는 브라우저 로컬에만 저장됩니다.</small>
+        </div>
+        <div class="info-box">
+          <strong>뉴스 소스</strong>
+          <p>Google 뉴스 RSS를 사용합니다. API 키 없이 무료로 이용 가능합니다.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-settings">취소</button>
+        <button class="btn btn-primary" id="btn-save-settings">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 트렌드 분석 모달 -->
+  <div class="modal-overlay" id="modal-analysis">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 id="analysis-modal-title">트렌드 분석</h3>
+        <button class="modal-close" data-close="modal-analysis">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="analysis-result"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-analysis">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
