@@ -39,6 +39,27 @@ let fetchedMap = {};      // { categoryId: [article, ...] }
 let currentCatId = null;  // null = 전체, string = 특정 분야
 let editingCatId = null;
 let memoTargetId = null;
+let dragSrcIdx = null;
+let currentMemoEditable = null; // 현재 포커스된 memo-editable
+
+// SVG 연필 아이콘 (모든 수정 버튼 공용)
+const ICON_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+
+// 분야명별 기본 검색 키워드
+const DEFAULT_KEYWORDS = {
+  '반도체': '반도체 주가 삼성 SK하이닉스',
+  '부동산': '부동산 아파트 시세 분양',
+  '주식': '주식 주가 코스피 코스닥',
+  '금융': '금융 금리 은행 대출',
+  '환율': '환율 달러 원화 외환',
+  '수출입': '수출 수입 무역 관세',
+  '물가': '물가 인플레이션 소비자물가 CPI',
+  'AI 경제': 'AI 인공지능 경제 산업',
+};
+
+function defaultKeywords(name) {
+  return DEFAULT_KEYWORDS[name] || name;
+}
 
 // ─── 유틸 ────────────────────────────────────────
 
@@ -230,12 +251,12 @@ async function fetchGeneralNews(keyword, cutoff, catId, catName) {
 }
 
 async function fetchNewsForCategory(cat) {
-  // cutoff는 항상 24시간 (lastFetched 기반 제한 제거 — 재조회 시 결과 안 나오는 버그 수정)
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const keyword = cat.keywords || cat.name;
 
   // 3개 소스 병렬 조회
   const results = await Promise.all(
-    NEWS_SOURCES.map(src => fetchFromSource(cat.name, src, cutoff, cat.id, cat.name))
+    NEWS_SOURCES.map(src => fetchFromSource(keyword, src, cutoff, cat.id, cat.name))
   );
 
   const hasProxyError = results.every(r => r === null);
@@ -243,7 +264,7 @@ async function fetchNewsForCategory(cat) {
   // 모든 소스가 프록시 오류면 키워드 일반 검색으로 폴백
   if (hasProxyError) {
     console.warn('모든 소스 조회 실패 — 일반 키워드 검색으로 폴백');
-    const fallback = await fetchGeneralNews(cat.name, cutoff, cat.id, cat.name);
+    const fallback = await fetchGeneralNews(keyword, cutoff, cat.id, cat.name);
     if (fallback.length > 0) return fallback;
     throw new Error('뉴스를 가져올 수 없습니다. CORS 프록시 서버가 응답하지 않습니다. 잠시 후 다시 시도해주세요.');
   }
@@ -275,12 +296,12 @@ async function fetchNewsForCategory(cat) {
 
   // 결과가 없으면 일반 검색 폴백
   if (merged.length === 0) {
-    const fallback = await fetchGeneralNews(cat.name, cutoff, cat.id, cat.name).catch(() => []);
-    if (fallback.length > 0) return filterByKeyword(fallback, cat.name);
+    const fallback = await fetchGeneralNews(keyword, cutoff, cat.id, cat.name).catch(() => []);
+    if (fallback.length > 0) return filterByKeyword(fallback, keyword);
   }
 
   merged.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-  return filterByKeyword(merged, cat.name);
+  return filterByKeyword(merged, keyword);
 }
 
 // 제목·요약에 분야 키워드가 포함된 기사만 반환 (결과가 너무 적으면 원본 반환)
@@ -305,16 +326,16 @@ function renderSidebar() {
       <span class="cat-count">${state.savedArticles.length}</span>
     </li>`;
 
-  const catItems = state.categories.map(cat => {
+  const catItems = state.categories.map((cat, idx) => {
     const cnt = state.savedArticles.filter(a => a.categoryId === cat.id).length;
     const active = cat.id === currentCatId;
     return `
-      <li class="category-item${active ? ' active' : ''}" data-id="${cat.id}">
-        <span class="category-dot"></span>
+      <li class="category-item${active ? ' active' : ''}" data-id="${cat.id}" data-idx="${idx}" draggable="true">
+        <span class="drag-handle" title="드래그하여 순서 변경">⠿</span>
         <span class="category-name">${esc(cat.name)}</span>
         ${cnt ? `<span class="cat-count">${cnt}</span>` : ''}
         <div class="cat-btns">
-          <button class="cat-btn edit" data-id="${cat.id}" title="수정"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="cat-btn edit" data-id="${cat.id}" title="수정">${ICON_EDIT}</button>
           <button class="cat-btn del"  data-id="${cat.id}" title="삭제">✕</button>
         </div>
       </li>`;
@@ -322,17 +343,69 @@ function renderSidebar() {
 
   list.innerHTML = allItem + catItems;
 
-  // 이벤트 위임
+  // 클릭 이벤트
   list.onclick = e => {
+    if (e.target.closest('.drag-handle')) return;
     const editBtn = e.target.closest('.cat-btn.edit');
     const delBtn  = e.target.closest('.cat-btn.del');
     const item    = e.target.closest('.category-item');
     if (!item) return;
-
     if (editBtn) { openEditCategory(editBtn.dataset.id); return; }
     if (delBtn)  { deleteCategory(delBtn.dataset.id);    return; }
     selectCategory(item.dataset.id === 'all' ? null : item.dataset.id);
   };
+
+  // 드래그앤드롭 이벤트 (before/after 정밀 삽입)
+  function clearDragIndicators() {
+    list.querySelectorAll('.drag-before, .drag-after').forEach(d => {
+      d.classList.remove('drag-before', 'drag-after');
+    });
+  }
+
+  list.querySelectorAll('.category-item[draggable]').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      dragSrcIdx = +el.dataset.idx;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearDragIndicators();
+      const rect = el.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        el.classList.add('drag-before');
+      } else {
+        el.classList.add('drag-after');
+      }
+    });
+    el.addEventListener('dragleave', e => {
+      // 자식 요소로 이동 시 무시
+      if (!el.contains(e.relatedTarget)) clearDragIndicators();
+    });
+    el.addEventListener('drop', async e => {
+      e.preventDefault();
+      const isBefore = el.classList.contains('drag-before');
+      clearDragIndicators();
+      const targetIdx = +el.dataset.idx;
+      if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+
+      const cats = [...state.categories];
+      const [moved] = cats.splice(dragSrcIdx, 1);
+      // 제거 후 인덱스 보정
+      let insertAt = dragSrcIdx < targetIdx ? targetIdx - 1 : targetIdx;
+      if (!isBefore) insertAt++;
+      cats.splice(Math.max(0, Math.min(insertAt, cats.length)), 0, moved);
+      state.categories = cats;
+      await saveCategoryOrderToFirebase();
+      renderSidebar();
+    });
+    el.addEventListener('dragend', () => {
+      clearDragIndicators();
+      list.querySelectorAll('.dragging').forEach(d => d.classList.remove('dragging'));
+      dragSrcIdx = null;
+    });
+  });
 }
 
 // ─── 렌더링: 최신 뉴스 ───────────────────────────
@@ -459,19 +532,8 @@ function renderSaved() {
             </div>
           </div>
           <div class="saved-card-memo">
-            <div class="memo-display" id="memo-display-${a.id}">
-              ${a.memo
-                ? `<div class="card-memo">${esc(a.memo)}</div>`
-                : `<p class="memo-empty">메모를 입력하세요</p>`}
-              <button class="btn btn-xs btn-memo do-memo" data-aid="${a.id}">${a.memo ? '✏ 수정' : '💬 추가'}</button>
-            </div>
-            <div class="inline-memo-editor" id="memo-editor-${a.id}">
-              <textarea class="inline-memo-textarea" placeholder="의견, 분석, 메모...">${esc(a.memo || '')}</textarea>
-              <div class="inline-memo-actions">
-                <button class="btn btn-xs btn-primary do-save-inline-memo" data-aid="${a.id}">저장</button>
-                <button class="btn btn-xs btn-secondary do-cancel-memo" data-aid="${a.id}">취소</button>
-              </div>
-            </div>
+            <div class="memo-editable" id="memo-edit-${a.id}" contenteditable="true" data-aid="${a.id}">${memoToHtml(a.memo)}</div>
+            <span class="memo-save-status" id="memo-status-${a.id}"></span>
           </div>
         </div>
       </div>`;
@@ -480,56 +542,40 @@ function renderSaved() {
 
   container.innerHTML = html;
 
-  container.querySelectorAll('.do-memo').forEach(btn => {
-    btn.onclick = () => {
-      const aid = btn.dataset.aid;
-      const editor = document.getElementById(`memo-editor-${aid}`);
-      const display = document.getElementById(`memo-display-${aid}`);
-      const isOpen = editor.classList.contains('open');
-      // 다른 에디터 모두 닫기
-      container.querySelectorAll('.inline-memo-editor').forEach(e => e.classList.remove('open'));
-      container.querySelectorAll('.memo-display').forEach(d => d.style.display = '');
-      if (!isOpen) {
-        editor.classList.add('open');
-        display.style.display = 'none';
-        editor.querySelector('textarea').focus();
-      }
-    };
-  });
+  // contenteditable 메모 이벤트 설정
+  container.querySelectorAll('.memo-editable').forEach(el => {
+    const aid    = el.dataset.aid;
+    const status = document.getElementById(`memo-status-${aid}`);
+    let saveTimer = null;
 
-  container.querySelectorAll('.do-save-inline-memo').forEach(btn => {
-    btn.onclick = async () => {
-      const aid = btn.dataset.aid;
-      const editor = document.getElementById(`memo-editor-${aid}`);
-      const memo = editor.querySelector('textarea').value.trim();
+    async function saveMemo() {
+      clearTimeout(saveTimer);
+      const memo = el.innerHTML;
       const idx = state.savedArticles.findIndex(a => a.id === aid);
-      if (idx !== -1) {
-        try {
-          await db.ref('savedArticles/' + aid + '/memo').set(memo);
-          state.savedArticles[idx].memo = memo;
-          showToast('메모가 저장되었습니다', 'ok');
-          renderSaved();
-        } catch (err) {
-          showToast('저장 실패: ' + err.message, 'err');
-        }
+      if (idx === -1) return;
+      if (state.savedArticles[idx].memo === memo) return;
+      try {
+        await db.ref('savedArticles/' + aid + '/memo').set(memo);
+        state.savedArticles[idx].memo = memo;
+        if (status) { status.textContent = '저장됨'; setTimeout(() => { status.textContent = ''; }, 1500); }
+      } catch (err) {
+        if (status) status.textContent = '저장 실패';
       }
-    };
-  });
+    }
 
-  container.querySelectorAll('.do-cancel-memo').forEach(btn => {
-    btn.onclick = () => {
-      const aid = btn.dataset.aid;
-      document.getElementById(`memo-editor-${aid}`).classList.remove('open');
-      document.getElementById(`memo-display-${aid}`).style.display = '';
-    };
-  });
-
-  container.querySelectorAll('.inline-memo-textarea').forEach(ta => {
-    ta.onkeydown = e => {
-      if (e.key === 'Enter' && e.ctrlKey) {
-        ta.closest('.inline-memo-editor').querySelector('.do-save-inline-memo').click();
-      }
-    };
+    el.addEventListener('focus', () => { currentMemoEditable = el; });
+    el.addEventListener('input', () => {
+      if (status) status.textContent = '…';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveMemo, 1200);
+    });
+    el.addEventListener('blur', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveMemo, 200);
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); saveMemo(); }
+    });
   });
 
   container.querySelectorAll('.do-delete').forEach(btn => {
@@ -546,6 +592,15 @@ function esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// 메모를 contenteditable용 HTML로 변환 (구버전 plain text 호환)
+function memoToHtml(memo) {
+  if (!memo) return '';
+  // HTML 태그가 포함되어 있으면 그대로 사용
+  if (/<[a-zA-Z]/.test(memo)) return memo;
+  // 순수 텍스트이면 escape 후 줄바꿈을 <br>로
+  return esc(memo).replace(/\n/g, '<br>');
 }
 
 // ─── 전체 렌더 ────────────────────────────────────
@@ -601,6 +656,7 @@ function openAddCategory() {
   editingCatId = null;
   document.getElementById('modal-category-title').textContent = '분야 추가';
   document.getElementById('input-category-name').value = '';
+  document.getElementById('input-category-keywords').value = '';
   openModal('modal-category');
   setTimeout(() => document.getElementById('input-category-name').focus(), 80);
 }
@@ -611,29 +667,32 @@ function openEditCategory(id) {
   editingCatId = id;
   document.getElementById('modal-category-title').textContent = '분야 수정';
   document.getElementById('input-category-name').value = cat.name;
+  document.getElementById('input-category-keywords').value = cat.keywords || defaultKeywords(cat.name);
   openModal('modal-category');
   setTimeout(() => document.getElementById('input-category-name').focus(), 80);
 }
 
 async function saveCategory() {
-  const name = document.getElementById('input-category-name').value.trim();
+  const name     = document.getElementById('input-category-name').value.trim();
+  const keywords = document.getElementById('input-category-keywords').value.trim() || defaultKeywords(name);
   if (!name) { showToast('분야명을 입력해주세요', 'err'); return; }
 
   if (editingCatId) {
     const idx = state.categories.findIndex(c => c.id === editingCatId);
     if (idx !== -1) {
-      state.categories[idx].name = name;
+      state.categories[idx].name     = name;
+      state.categories[idx].keywords = keywords;
       state.savedArticles.forEach(a => {
         if (a.categoryId === editingCatId) a.categoryName = name;
       });
-      await db.ref('categories/' + editingCatId + '/name').set(name).catch(() => {});
+      await db.ref('categories/' + editingCatId).update({ name, keywords }).catch(() => {});
     }
     showToast('분야가 수정되었습니다', 'ok');
   } else {
     if (state.categories.some(c => c.name === name)) {
       showToast('이미 존재하는 분야입니다', 'warn'); return;
     }
-    const cat = { id: uid(), name, lastFetched: null };
+    const cat = { id: uid(), name, keywords, lastFetched: null, order: state.categories.length };
     state.categories.push(cat);
     await db.ref('categories/' + cat.id).set(cat).catch(() => {});
     showToast('분야가 추가되었습니다', 'ok');
@@ -959,10 +1018,18 @@ function bindEvents() {
     if (e.key === 'Enter') saveCategory();
   };
 
+  // 분야명 입력 시 키워드 자동 설정 (추가 모드에서만)
+  document.getElementById('input-category-name').oninput = e => {
+    if (editingCatId) return;
+    const kw = document.getElementById('input-category-keywords');
+    kw.value = defaultKeywords(e.target.value.trim());
+  };
+
   // 추천 태그
   document.querySelectorAll('.tag-btn').forEach(btn => {
     btn.onclick = () => {
       document.getElementById('input-category-name').value = btn.dataset.tag;
+      document.getElementById('input-category-keywords').value = defaultKeywords(btn.dataset.tag);
       document.getElementById('input-category-name').focus();
     };
   });
@@ -1033,6 +1100,15 @@ ${items}`;
   }
 }
 
+async function saveCategoryOrderToFirebase() {
+  const updates = {};
+  state.categories.forEach((cat, idx) => {
+    cat.order = idx;
+    updates['categories/' + cat.id + '/order'] = idx;
+  });
+  await db.ref().update(updates).catch(() => {});
+}
+
 async function saveFetchedToFirebase(catId, articles) {
   const obj = {};
   articles.forEach(a => { obj[a.id] = a; });
@@ -1061,7 +1137,7 @@ function loadFromFirebase() {
     db.ref('fetchedArticles').once('value')
   ]).then(([catsSnap, savedSnap, fetchedSnap]) => {
     const catsData = catsSnap.val() || {};
-    state.categories = Object.values(catsData);
+    state.categories = Object.values(catsData).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
     const saved = savedSnap.val() || {};
     state.savedArticles = Object.values(saved);
@@ -1078,12 +1154,83 @@ function loadFromFirebase() {
   });
 }
 
+// ─── 메모 플로팅 툴바 ────────────────────────────
+
+function initFloatToolbar() {
+  const toolbar = document.getElementById('memo-float-toolbar');
+
+  // 선택 변경 감지 (rAF로 디바운스)
+  let rafId = null;
+  document.addEventListener('selectionchange', () => {
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(updateFloatToolbar);
+  });
+
+  function updateFloatToolbar() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      hideFloatToolbar();
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const node  = range.commonAncestorContainer;
+    const editable = (node.nodeType === 3 ? node.parentElement : node)
+      ?.closest('.memo-editable');
+    if (!editable) { hideFloatToolbar(); return; }
+
+    const rect = range.getBoundingClientRect();
+    if (!rect.width) { hideFloatToolbar(); return; }
+
+    currentMemoEditable = editable;
+    positionFloatToolbar(rect);
+  }
+
+  function positionFloatToolbar(selRect) {
+    toolbar.classList.add('visible');
+    // 크기 확보 후 위치 계산
+    requestAnimationFrame(() => {
+      const tbW = toolbar.offsetWidth;
+      const tbH = toolbar.offsetHeight;
+      let top  = selRect.top - tbH - 10;
+      let left = selRect.left + (selRect.width - tbW) / 2;
+      // 화면 위쪽 넘침 → 선택 영역 아래에 표시
+      if (top < 6) top = selRect.bottom + 10;
+      left = Math.max(6, Math.min(left, window.innerWidth - tbW - 6));
+      toolbar.style.top  = top  + 'px';
+      toolbar.style.left = left + 'px';
+    });
+  }
+
+  function hideFloatToolbar() {
+    toolbar.classList.remove('visible');
+  }
+
+  // 툴바 버튼: mousedown + preventDefault → 선택 유지
+  toolbar.querySelectorAll('.memo-fmt-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();
+      if (!currentMemoEditable) return;
+      currentMemoEditable.focus();
+      document.execCommand(btn.dataset.cmd, false, btn.dataset.val || null);
+    });
+  });
+  toolbar.querySelectorAll('.memo-color-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();
+      if (!currentMemoEditable) return;
+      currentMemoEditable.focus();
+      document.execCommand('foreColor', false, btn.dataset.color);
+    });
+  });
+}
+
 // ─── 초기화 ───────────────────────────────────────
 
 function init() {
   bindEvents();
   renderAll();
   loadFromFirebase();
+  initFloatToolbar();
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -89,7 +89,6 @@
         <div class="form-group">
           <label for="input-category-name">분야명</label>
           <input type="text" id="input-category-name" class="form-input" placeholder="예: 반도체, 부동산, 금융, 주식..." maxlength="20">
-          <small class="form-hint">뉴스 검색 키워드로 사용됩니다</small>
         </div>
         <div class="suggested-tags">
           <span class="tag-label">추천:</span>
@@ -101,6 +100,11 @@
           <button class="tag-btn" data-tag="수출입">수출입</button>
           <button class="tag-btn" data-tag="물가">물가</button>
           <button class="tag-btn" data-tag="AI 경제">AI 경제</button>
+        </div>
+        <div class="form-group keywords-group">
+          <label for="input-category-keywords">검색 키워드</label>
+          <input type="text" id="input-category-keywords" class="form-input" placeholder="예: 반도체 주가 삼성">
+          <small class="form-hint">분야명 입력 시 자동 설정됩니다. 직접 수정 가능합니다.</small>
         </div>
       </div>
       <div class="modal-footer">
@@ -170,6 +174,23 @@
         <button class="btn btn-secondary" data-close="modal-analysis">닫기</button>
       </div>
     </div>
+  </div>
+
+  <!-- 메모 플로팅 서식 툴바 -->
+  <div id="memo-float-toolbar" class="memo-float-toolbar">
+    <button class="memo-fmt-btn" data-cmd="bold"   title="굵게 (Ctrl+B)"><b>B</b></button>
+    <button class="memo-fmt-btn" data-cmd="italic" title="기울임 (Ctrl+I)"><i>I</i></button>
+    <span class="memo-fmt-sep"></span>
+    <button class="memo-fmt-btn memo-size" data-cmd="fontSize" data-val="2" title="작게">S</button>
+    <button class="memo-fmt-btn memo-size" data-cmd="fontSize" data-val="3" title="보통">M</button>
+    <button class="memo-fmt-btn memo-size" data-cmd="fontSize" data-val="5" title="크게">L</button>
+    <span class="memo-fmt-sep"></span>
+    <button class="memo-color-btn" data-color="#212121" style="background:#212121" title="검정"></button>
+    <button class="memo-color-btn" data-color="#1565C0" style="background:#1565C0" title="파랑"></button>
+    <button class="memo-color-btn" data-color="#2E7D32" style="background:#2E7D32" title="초록"></button>
+    <button class="memo-color-btn" data-color="#C62828" style="background:#C62828" title="빨강"></button>
+    <button class="memo-color-btn" data-color="#E65100" style="background:#E65100" title="주황"></button>
+    <button class="memo-color-btn" data-color="#6A1B9A" style="background:#6A1B9A" title="보라"></button>
   </div>
 
   <!-- 토스트 알림 -->
