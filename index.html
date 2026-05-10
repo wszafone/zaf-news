@@ -45,6 +45,7 @@
         <div class="panel-actions">
           <span class="fetch-time-label" id="last-fetch-time"></span>
           <button class="btn btn-danger-outline btn-sm" id="btn-clear-fetched" disabled>전체 삭제</button>
+          <button class="btn btn-outline btn-sm" id="btn-refetch" disabled>↺ 재조회</button>
           <button class="btn btn-primary btn-sm" id="btn-fetch" disabled>🔄 조회</button>
         </div>
       </div>
@@ -102,9 +103,12 @@
           <button class="tag-btn" data-tag="AI 경제">AI 경제</button>
         </div>
         <div class="form-group keywords-group">
-          <label for="input-category-keywords">검색 키워드</label>
-          <input type="text" id="input-category-keywords" class="form-input" placeholder="예: 반도체 주가 삼성">
-          <small class="form-hint">분야명 입력 시 자동 설정됩니다. 직접 수정 가능합니다.</small>
+          <label>검색 키워드</label>
+          <div class="kw-tag-input" id="kw-tag-area">
+            <input type="text" id="input-keyword-new" class="kw-new-input"
+                   placeholder="키워드 입력 후 Enter" maxlength="40" autocomplete="off">
+          </div>
+          <small class="form-hint">Enter 또는 쉼표로 추가 · Backspace로 마지막 삭제 · 키워드별 독립 검색 후 합산</small>
         </div>
       </div>
       <div class="modal-footer">
@@ -145,8 +149,12 @@
       <div class="modal-body">
         <div class="form-group">
           <label for="input-api-key">Claude API Key</label>
-          <input type="password" id="input-api-key" class="form-input" placeholder="sk-ant-api03-...">
-          <small class="form-hint">트렌드 분석에 사용됩니다. API 키는 브라우저 로컬에만 저장됩니다.</small>
+          <div class="api-key-row">
+            <input type="password" id="input-api-key" class="form-input" placeholder="sk-ant-api03-...">
+            <button class="btn btn-outline btn-sm" id="btn-test-api">연결 테스트</button>
+          </div>
+          <div id="api-key-status" class="api-key-status"></div>
+          <small class="form-hint">기사 요약 및 트렌드 분석에 사용됩니다. API 키는 브라우저 로컬에만 저장됩니다.</small>
         </div>
         <div class="info-box">
           <strong>뉴스 소스</strong>
@@ -192,6 +200,9 @@
     <button class="memo-color-btn" data-color="#E65100" style="background:#E65100" title="주황"></button>
     <button class="memo-color-btn" data-color="#6A1B9A" style="background:#6A1B9A" title="보라"></button>
   </div>
+
+  <!-- 날짜 달력 팝업 -->
+  <div id="date-calendar" class="date-calendar"></div>
 
   <!-- 토스트 알림 -->
   <div id="toast" class="toast"></div>
